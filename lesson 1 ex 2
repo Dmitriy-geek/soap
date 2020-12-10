@@ -1,0 +1,45 @@
+# Запрос позволяет получить информацию от яндекса о ближайшем к указанной точке городе.
+# Точка определяется географическими координатами (широтой и долготой) согласно WGS84.
+# Поиск можно ограничить определенным радиусом (по умолчанию — 10 километров, но не больше 50).
+
+import requests
+import json
+from pprint import pprint
+
+main_link = f'https://api.rasp.yandex.net/v3.0/nearest_settlement/ ?'
+print(main_link)
+
+# долгота 59.932576 Санкт-Петербург
+# широта 30.318038
+# 2d383b73-04e3-476e-b954-9dd301a54e99
+
+
+# url_params = {
+#    'apikey' : '2d383b73-04e3-476e-b954-9dd301a54e99',
+#    'lat' : 30.318038, # широта
+#    'lng' : 59.932576,
+#    'distance' : 1, # километры
+#    'lang' : 'ru_RU',
+#    'format' : 'json'
+# }
+url_params = 'https://api.rasp.yandex.net/v3.0/nearest_settlement/?' \
+             'apikey=2d383b73-04e3-476e-b954-9dd301a54e99&format=json&lat=' \
+             '50.440046&lng=40.4882367&distance=50&lang=ru_RU'
+
+response = requests.get(url_params)
+# response = requests.get(main_link, params=url_params)
+
+file = 'geek.json'
+
+try:
+    if response.ok:
+        j_data = response.json()
+        with open(file, 'w', encoding= 'utf-8') as data_f:
+            print(file)
+            json.dump(j_data, data_f, indent=4, ensure_ascii= False)
+            # pprint(j_data)
+            print('all ok')
+    else:
+        raise Exception('Ошибочка вышла')
+except Exception as e:
+    print(e)
