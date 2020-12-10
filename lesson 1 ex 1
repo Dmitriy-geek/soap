@@ -1,0 +1,26 @@
+import requests
+import json
+from pprint import pprint
+
+user = 'Dmitriy-geek'
+
+main_link = f'https://api.github.com/users/{user}/repos'
+
+response = requests.get(main_link)
+
+file = 'geek.json'
+
+try:
+    if response.ok:
+        j_data = response.json()
+        with open(file, 'w', encoding= 'utf-8') as data_f:
+            print(file)
+            json.dump(j_data, data_f, indent=4, ensure_ascii= False)
+            # pprint(j_data)
+            print('all ok')
+    else:
+        raise Exception('Ошибочка вышла')
+except Exception as e:
+    print(e)
+
+
