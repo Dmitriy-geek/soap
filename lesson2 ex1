@@ -1,0 +1,66 @@
+from bs4 import BeautifulSoup as bs
+import requests
+import re
+
+vacancy_input = input('Ввведите название вакансии ')  # 'менеджер по продажам авто'
+pr_reload_file = input('Введите yes, если необходимо перезаписать файл с результатами ')
+main_link = 'https://hh.ru'
+addit_params = f"/search/vacancy?clusters=true&search_field=description&enable_snippets=true&salary=&st=searchVacancy&text={vacancy_input}"
+headers = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'}
+vacancies = []
+cnt = 0
+next_link = 1
+# https://spb.hh.ru/search/vacancy?clusters=true&search_field=description&enable_snippets=true&salary=&st=searchVacancy&text=Data+scientist
+while next_link is not None:
+    response = requests.get(main_link + addit_params, params={}, headers=headers) #
+    print(response.url)
+    soup = bs(response.text, 'html.parser')
+    if response.ok:
+        vacancy_list = soup.findAll('div', {'class': 'vacancy-serp-item__row_header'})
+        for vacancy in vacancy_list:
+            data = {}
+            cnt += 1
+            vacancy_header = vacancy.find('a')
+            data['site'] = 'https://hh.ru'
+            data['vacancy'] = vacancy_header.text
+            data['link'] = vacancy_header['href']
+            vacancy_salary = vacancy.find('span', {'data-qa': 'vacancy-serp__vacancy-compensation'})
+            if vacancy_salary is None:
+                data['currency'] = None
+                data['salary_min'] = None
+                data['salary_max'] = None
+                vacancies.append(data)
+                continue
+            salary_text = ''.join(vacancy_salary.text.split()[:-1])
+            data['currency'] = vacancy_salary.text.split()[-1]
+            if salary_text.find('-') > -1:
+                data['salary_min'] = re.sub('\D', '', salary_text.split('-')[0])
+                data['salary_max'] = re.sub('\D', '', salary_text.split('-')[-1])
+            elif salary_text.find('от') > -1:
+                data['salary_min'] = re.sub('\D', '', salary_text)
+                data['salary_max'] = None
+            elif salary_text.find('до') > -1:
+                data['salary_min'] = None
+                data['salary_max'] = re.sub('\D', '', salary_text)
+            else:
+                data['salary_min'] = re.sub('\D', '', salary_text)
+                data['salary_max'] = re.sub('\D', '', salary_text)
+            vacancies.append(data)
+            next_link = soup.find('a', {'data-qa': 'pager-next'})
+        print(cnt)
+        c = soup.find('h1').text.split('\xa0') #кусок кода который выделяет цифру количества вакансий на hh.ru и проводит проверку с счетчиком
+        c = int(c[0])
+        if c == cnt:
+            break
+        addit_params = next_link['href']
+
+if pr_reload_file == 'yes':
+    with open("result.csv", "w", encoding="utf-8") as my_file:
+        my_file.write("")
+
+with open("result.csv", "a", encoding="utf-8") as my_file:
+    for v in vacancies:
+        try:
+            my_file.write(f"{v['site']};{v['link']};{v['vacancy']};{v['salary_min']};{v['salary_max']};{v['currency']}\n")
+        except KeyError:
+            print(v)
