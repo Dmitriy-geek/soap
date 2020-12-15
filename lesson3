@@ -75,13 +75,13 @@ while next_link is not None:
             else: print('имеется')
             next_link = soup.find('a', {'data-qa': 'pager-next'})
         print(cnt)
-        c = soup.find('h1').text.split('\xa0')
-        c = int(c[0])
-        if c == cnt:
-            break
-#        button = soup.findAll('a', {'class': 'bloko-button HH-Pager-Controls-Next HH-Pager-Control'})
-#        if button == []:
+#        c = soup.find('h1').text.split('\xa0')
+#        c = int(c[0])
+#        if c == cnt:
 #            break
+        button = soup.findAll('a', {'class': 'bloko-button HH-Pager-Controls-Next HH-Pager-Control'})
+        if button == []:
+            break
         addit_params = next_link['href']
 
 if pr_reload_file == 'yes':
@@ -94,3 +94,4 @@ with open("result.csv", "a", encoding="utf-8") as my_file:
             my_file.write(f"{v['site']};{v['link']};{v['vacancy']};{v['salary_min']};{v['salary_max']};{v['currency']}\n")
         except KeyError:
             print(v)
+
