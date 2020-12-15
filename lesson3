@@ -8,7 +8,7 @@ client = MongoClient('127.0.0.1', 27017)
 db = client['hh']
 hh_col = db.users
 
-vacancy_input = input('Ввведите название вакансии - ')  # 'менеджер по продажам авто'
+vacancy_input = input('Ввведите название вакансии - ')  # 'data scientist'
 pr_reload_file = input('Введите yes, если необходимо перезаписать файл с результатами ')
 main_link = 'https://hh.ru'
 addit_params = f"/search/vacancy?clusters=true&search_field=description&enable_snippets=true&salary=&st=searchVacancy&text={vacancy_input}"
@@ -16,18 +16,21 @@ headers = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 vacancies = []
 cnt = 0
 next_link = 1
-k = ''
+
 che = ''
 # https://spb.hh.ru/search/vacancy?clusters=true&search_field=description&enable_snippets=true&salary=&st=searchVacancy&text=Data+scientist
 
 def check(str):
     che = hh_col.find({'link': str})
+    k = ''
     for el in che:
         k = el['link']
-    if k is not None:
+    if k == str:
         return 0
     else:
         return 1
+
+
 
 
 
@@ -94,4 +97,3 @@ with open("result.csv", "a", encoding="utf-8") as my_file:
             my_file.write(f"{v['site']};{v['link']};{v['vacancy']};{v['salary_min']};{v['salary_max']};{v['currency']}\n")
         except KeyError:
             print(v)
-
