@@ -1,0 +1,153 @@
+import requests
+from pymongo import MongoClient
+from lxml import html
+from pprint import pprint
+from time import sleep
+
+
+def get_links(source):
+    links = []
+    for item in source:
+        links.append(item.xpath(".//a/@href")[0])
+    return links
+
+
+def request(url):
+    header = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'}
+    response = requests.get(url, headers=header)
+    return html.fromstring(response.text)
+
+
+def execute_data(options, item, link):
+    """
+    Функция извлекает данные их xPath объекта в соответствии с переданными xPath путями
+    :param options: xPath пути
+    :param item: Обрабатываемый xPath объект
+    :param link: (опционально) обрабатываемый url
+    :return: Спарсенные данные
+    """
+    post_time = item.xpath(options['post_time'])[0]
+    post_h1 = item.xpath(options['post_h1'])[0].replace(u'\xa0', ' ')
+    if options['post_source'] != '':
+        post_source = item.xpath(options['post_source'])[0]
+    else:
+        post_source = options['host']
+    if link:
+        url = link
+    else:
+        url = item.xpath(options['link'])[0]
+        if 'http' not in url:  # Добавляем хост, если ссылка относительная
+            url = options['host'] + url
+    return {'time': post_time, 'source': post_source, 'h1': post_h1, 'url': url}
+
+
+def get_data(daily_news, options, links):
+    """
+    Функция определяет глубину парсинга и передает на следующий уровень (execute_data) необходимые параметры для извлечения
+    :param daily_news: Список xPath объектов новостей
+    :param options: xPath пути
+    :param links: (Опционально) Если передан набор ссылок, то необходимо заходить на страницу для получения контента
+    :return: Словарь с извлеченными данными с итерируемого сайта
+    """
+    data = []
+    if links:
+        for link in links:
+            for i in options['skip_urls']:
+                if i in link:
+                    continue
+            dom = request(link)
+            item = dom.xpath(options['post'])[0]
+            data.append(execute_data(options, item, link))
+            sleep(1)
+    else:
+        for item in daily_news:
+            data.append(execute_data(options, item, None))
+    return data
+
+
+def insert_db(news_db, data):
+    """
+    Вставка происходит с исключением дубликатов. Идентификатором выступает url поста
+    :param news_db: Подключение к БД
+    :param data: Вставляемые данные
+    :return:
+    """
+    try:
+        if len(data) > 0:
+            for d in data:
+                news_db.update_many({'url': d['url']}, {'$set': d}, upsert=True)
+        return False
+    except Exception as e:
+        return e
+
+
+sites = [
+    {
+        'host': 'https://lenta.ru',
+        'parsing_posts': 0,
+        'main_block': "//section[contains(@class,'b-top7-for-main')]",
+        'daily_news': [
+            ".//div[contains(@class,'item') and not(contains(@class,'first'))]//a",
+            ".//h2/a"
+        ],
+        'link': "./@href",
+        'post_time': "./time/@datetime",
+        'post_h1': "./text()",
+        'post_source': ""
+    },
+    {
+        'host': 'https://yandex.ru/news',
+        'parsing_posts': 0,
+        'main_block': "//div[contains(@class,'news-top-stories')]",
+        'daily_news': [".//article"],
+        'link': ".//a[@class='mg-card__link']/@href",
+        'post_time': ".//span[@class='mg-card-source__time']/text()",
+        'post_h1': ".//h2/text()",
+        'post_source': ".//span[@class='mg-card-source__source']/a/text()"
+    },
+    {
+        'host': 'https://news.mail.ru',
+        'parsing_posts': 1,
+        'main_block': "//div[@class='wrapper']//div[@class='js-module']",
+        'daily_news': [
+            ".//div[contains(@class,'daynews__item')]",
+            ".//li[@class='list__item']"
+        ],
+        'link': '',
+        'post_time': ".//span[contains(@class,'js-ago')]/@datetime",
+        'post_h1': ".//h1/text()",
+        'post_source': ".//a/span/text()",
+        'skip_urls': [
+            'sportmail.ru'
+            # Могут быть ссылки на спортивные события, проходящие в текущий момент.
+            # Пример: https://sportmail.ru/football-rus-premier/242/match/319397/
+        ],
+        'post': "//div[contains(@class,'js-article')]"
+    }
+]
+
+try:
+    client = MongoClient('127.0.0.1', 27017)
+    db = client['news']
+    news_db = db.news
+    data = []
+    for options in sites:
+        dom = request(options['host'])  # Получаем блок, из которого будем дергать все данные
+        main_block = dom.xpath(options['main_block'])[0]
+
+        daily_news = []  # Перебираем xPath заданные для итерируемого сайта. Ссылки могут быть полученым по разным путям
+        for d in options['daily_news']:
+            daily_news = daily_news + main_block.xpath(d)
+
+        links = None
+        if options['parsing_posts'] == 1:  # Если необходимо парсить посты
+            links = get_links(daily_news)
+
+        result = get_data(daily_news, options, links)
+        if result:
+            data = data + result
+
+    insert_db(news_db, data)
+except Exception as e:
+    print(e)
