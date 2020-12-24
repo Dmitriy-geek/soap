@@ -1,0 +1,144 @@
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+# from selenium.webdriver.support.ui import Select
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
+from pymongo import MongoClient
+from time import sleep
+from pprint import pprint
+
+# берем письма из mail.ru
+def authorized(driver):
+    """
+    Авторизуемся в mail.ru
+    """
+    try:
+        driver.get('https://mail.ru/')
+        elem = driver.find_element_by_name('login')
+        elem.send_keys('study.ai_172')
+        elem.send_keys(Keys.ENTER)
+
+        elem = WebDriverWait(driver, 2).until(
+            EC.visibility_of_element_located((By.NAME, 'password'))
+        )
+
+        elem.send_keys('NextPassword172')
+        elem.send_keys(Keys.ENTER)
+        return False
+    except Exception as e:
+        return e
+
+
+def get_mail_list(driver):
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CLASS_NAME, 'llc'))
+        )
+        return False
+    except Exception as e:
+        return e
+
+
+def get_links(driver):
+    """
+    :param driver:
+    :return: Список всех ссылок на письма
+    """
+    try:
+        links = []
+        last_link = ''
+        while True:
+            mails = driver.find_elements_by_class_name('llc')
+            for mail in mails:
+                links.append(mail.get_attribute('href'))
+            if last_link == mails[-1].get_attribute('href'):
+                break
+            last_link = mails[-1].get_attribute('href')
+            actions = ActionChains(driver)
+            actions.move_to_element(mails[-1])
+            actions.perform()
+            sleep(1)
+        links = list(set(links))
+        return links
+    except Exception as e:
+        return e
+
+
+def get_content(driver, links):
+    """
+    Получаем контент письма
+    """
+    data = []
+    for link in links:
+        try:
+            driver.get(link)
+            body = WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.CLASS_NAME, 'letter__body'))
+            )
+            # После получения тела все остальные также должны быть уже на странице
+            title = driver.find_element_by_class_name('thread__subject')
+            contact = driver.find_element_by_class_name('letter-contact')
+            date = driver.find_element_by_class_name('letter__date')
+
+            data.append(
+                {'title': title.text, 'body': body.text, 'contact': contact.text, 'date': date.text, 'url': link})
+        except Exception as e:
+            return f'{e} {link}'
+    return data
+
+
+def insert_db(db, data):
+    """
+    Вставка происходит с исключением дубликатов. Идентификатором выступает url письма
+    :param db: Подключение к БД
+    :param data: Вставляемые данные
+    :return:
+    """
+    try:
+        if len(data) > 0:
+            for d in data:
+                db.update_many({'url': d['url']}, {'$set': d}, upsert=True)
+        return False
+    except Exception as e:
+        return e
+
+
+chrome_options = Options()
+chrome_options.add_argument('start-maximized')
+driver = webdriver.Chrome(executable_path='./chromedriver.exe', options=chrome_options)
+
+try:
+    client = MongoClient('127.0.0.1', 27017)
+    db = client['mails']
+    mail_db = db.mail
+
+    res = authorized(driver)
+    if res:
+        driver.close()
+        raise Exception(f'Не получилось авторизоваться {res}')
+
+    res = get_mail_list(driver)
+    if res:
+        driver.close()
+        raise Exception(f'Письма не появились на экране. {res}')
+
+    links = get_links(driver)
+    if not isinstance(links, list):
+        driver.close()
+        raise Exception(f'Ошибка при получении списка писем: {links}')
+
+    data = get_content(driver, links)
+    if not isinstance(data, list):
+        driver.close()
+        raise Exception(f'Ошибка при получении контента писем: {data}')
+
+    res = insert_db(mail_db, data)
+    if res:
+        raise Exception(res)
+except Exception as e:
+    print(e)
+
+driver.close()
