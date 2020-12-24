@@ -1,0 +1,97 @@
+from selenium import webdriver
+# from selenium.webdriver.common.keys import Keys
+# from selenium.webdriver.support.ui import Select
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+# from selenium.webdriver.common.action_chains import ActionChains
+from pymongo import MongoClient
+from time import sleep
+from pprint import pprint
+
+
+def get_data(driver, el):
+    """
+    Перебираем элементы списка, парсим нужные данные
+    """
+    data = {}
+    while True:
+        hits = el.find_elements_by_xpath(".//li")
+        new = None
+        for hit in hits:
+            if not hit.text == '':
+                link = hit.find_element_by_xpath('.//a').get_attribute('href')
+                if link not in data:
+                    new = 1
+                    price = get_text(hit, 'fl-product-tile-price__current')
+                    price_old = get_text(hit, 'fl-product-tile-price__sale')
+                    rating = get_text(hit, 'fl-product-tile-rating__stars-value')
+                    reviews = get_text(hit, 'fl-product-tile-rating__reviews')
+                    data.update({link: {'price': price, 'price_old': price_old, 'rating': rating, 'reviews': reviews}})
+        if new:
+            button = WebDriverWait(driver, 5).until(
+                lambda x: el.find_element_by_xpath(".//a[contains(@class ,'next-btn')]")
+            )
+            button.click()
+            sleep(1)
+        else:
+            break
+    return data
+
+
+def get_text(element, cl):
+    try:
+        return element.find_element_by_class_name(cl).text
+    except:
+        return None
+
+
+def insert_db(db, data):
+    """
+    Вставка происходит с исключением дубликатов. Идентификатором выступает url письма
+    :param db: Подключение к БД
+    :param data: Вставляемые данные
+    :return:
+    """
+    try:
+        if len(data) > 0:
+            for d in data:
+                tmp = data[d]
+                tmp['url'] = d
+                db.update_many({'url': tmp['url']}, {'$set': tmp}, upsert=True)
+        return False
+    except Exception as e:
+        return e
+
+
+chrome_options = Options()
+chrome_options.add_argument('start-maximized')
+driver = webdriver.Chrome(executable_path='./chromedriver.exe', options=chrome_options)
+
+try:
+    data = {}
+    client = MongoClient('127.0.0.1', 27017)
+    db = client['mvideo']
+    mvideo_db = db.mvideo
+
+    driver.get('https://www.mvideo.ru/')
+
+    # Проверяем, что нужный блок появился на странице
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//div[@class='section']//div[contains(text(),'Хиты продаж')]"))
+    )
+
+    # Верстка блоков очень похожая, не придумал, как подобраться ближе, к нужным элементам
+    elements = driver.find_elements_by_xpath("//div[@class='section']")
+    for el in elements:
+        if 'Хиты продаж' in el.text:  # Нас интересует блок, где в тексте есть вдождение
+            data = get_data(driver, el)
+
+    res = insert_db(mvideo_db, data)
+    if res:
+        raise Exception(res)
+except Exception as e:
+    print(e)
+
+driver.close()
